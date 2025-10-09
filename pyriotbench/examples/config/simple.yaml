@@ -1,0 +1,14 @@
+# Simple PyRIoTBench Configuration
+# Minimal configuration for quick testing
+
+name: simple_benchmark
+input_file: data/test.txt
+output_file: results/output.txt
+
+platform_config:
+  platform: standalone
+  parallelism: 1
+
+tasks:
+  - task_name: noop
+    enabled: true

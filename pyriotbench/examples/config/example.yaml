@@ -1,0 +1,63 @@
+# Example PyRIoTBench Configuration (YAML)
+
+# Benchmark identification
+name: example_benchmark
+
+# Input/Output files
+input_file: data/sample_data.txt
+output_file: results/output.txt
+
+# Logging configuration
+log_level: INFO  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+log_file: logs/benchmark.log  # Optional: if not set, logs to console
+
+# Platform configuration
+platform_config:
+  platform: standalone  # standalone, beam, flink, ray
+  parallelism: 4
+  
+  # Beam-specific settings (only used if platform=beam)
+  beam_runner: DirectRunner  # DirectRunner, DataflowRunner, FlinkRunner
+  beam_options:
+    project: my-gcp-project  # For DataflowRunner
+    region: us-central1
+  
+  # Flink-specific settings (only used if platform=flink)
+  flink_checkpoint_interval: 60000  # milliseconds
+  
+  # Ray-specific settings (only used if platform=ray)
+  ray_num_cpus: 4
+  ray_num_gpus: 0
+
+# Metrics configuration
+metrics_enabled: true
+metrics_output: results/metrics.json  # Optional: if not set, includes in logs
+
+# Task pipeline (executed in order)
+tasks:
+  # Parse task
+  - task_name: senml_parse
+    enabled: true
+    config_params:
+      validate: true
+  
+  # Bloom filter task
+  - task_name: bloom_filter
+    enabled: true
+    config_params:
+      size: 10000
+      num_hashes: 3
+      model_path: models/bloomfilter.model
+  
+  # Average task
+  - task_name: average
+    enabled: true
+    config_params:
+      window_size: 10
+  
+  # Kalman filter (optional - can be disabled)
+  - task_name: kalman_filter
+    enabled: false
+    config_params:
+      process_variance: 0.01
+      measurement_variance: 0.1
