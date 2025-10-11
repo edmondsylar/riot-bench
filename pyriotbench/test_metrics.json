@@ -1,0 +1,48 @@
+{
+  "task_name": "noop",
+  "summary": {
+    "task_name": "noop",
+    "count": 3,
+    "success_count": 3,
+    "error_count": 0,
+    "success_rate": 1.0,
+    "mean_time_us": 2.6333388329173126,
+    "median_time_us": 2.5000044843181968,
+    "min_time_us": 0.900006853044033,
+    "max_time_us": 4.5000051613897085,
+    "stddev_time_us": 1.8036991133252227,
+    "total_time_us": 7.900016498751938,
+    "p50_us": 2.5000044843181968,
+    "p95_us": 4.300005093682557,
+    "p99_us": 4.460005147848278
+  },
+  "metrics": [
+    {
+      "task_name": "noop",
+      "execution_time_us": 4.5000051613897085,
+      "timestamp": "2025-10-10T03:32:31.613704+00:00",
+      "status": "success",
+      "input_size": null,
+      "output_size": null,
+      "metadata": {}
+    },
+    {
+      "task_name": "noop",
+      "execution_time_us": 2.5000044843181968,
+      "timestamp": "2025-10-10T03:32:31.613704+00:00",
+      "status": "success",
+      "input_size": null,
+      "output_size": null,
+      "metadata": {}
+    },
+    {
+      "task_name": "noop",
+      "execution_time_us": 0.900006853044033,
+      "timestamp": "2025-10-10T03:32:31.613704+00:00",
+      "status": "success",
+      "input_size": null,
+      "output_size": null,
+      "metadata": {}
+    }
+  ]
+}

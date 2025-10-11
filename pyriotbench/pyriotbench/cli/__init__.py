@@ -1,3 +1,5 @@
 """Command-line interface for PyRIoTBench."""
 
-__all__ = []
+from .main import cli, main
+
+__all__ = ["cli", "main"]

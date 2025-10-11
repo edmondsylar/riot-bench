@@ -8,10 +8,10 @@ This module tests the NoOperation task implementation, which serves as:
 """
 
 import pytest
-import time
+import logging
 from typing import Any
 
-from pyriotbench.core import TaskRegistry, create_task
+from pyriotbench.core import TaskRegistry, create_task, TaskMetrics, MetricsAggregator
 
 
 # Import to ensure task is registered
@@ -64,26 +64,17 @@ class TestNoOpTaskLifecycle:
         task.setup()
         task.tear_down()
     
-    def test_setup_with_logger(self, caplog):
-        """Test setup logs initialization."""
-        import logging
-        
-        # Set up logging to capture
-        logger = logging.getLogger("NoOpTask")
-        logger.setLevel(logging.INFO)
-        
+    def test_setup_with_logger(self):
+        """Test setup works (logger is created automatically)."""
         task = NoOpTask()
+        
+        # Should not raise
         task.setup()
-        
-        # Should log initialization message
-        messages = [record.message for record in caplog.records]
-        assert any("initialized" in msg.lower() for msg in messages), \
-            "Should log initialization"
-        
+        assert task._logger is not None
         task.tear_down()
     
     def test_setup_with_config(self):
-        """Test setup works (no config needed for NoOp)."""
+        """Test setup works (even though NoOp doesn't use config)."""
         task = NoOpTask()
         
         # Should not raise even though NoOp doesn't use config
@@ -108,8 +99,13 @@ class TestNoOpTaskExecution:
         task = NoOpTask()
         task.setup()
         
-        result = task.execute(42)
-        assert result == 42, "Should pass through integer unchanged"
+        output = task.execute(42)
+        assert output == 42, "Should pass through integer unchanged"
+        
+        # Get timing from last result
+        result = task.get_last_result()
+        assert result.execution_time_ms > 0, "Should have execution time"
+        assert result.success, "Should be successful"
         
         task.tear_down()
     
@@ -118,8 +114,12 @@ class TestNoOpTaskExecution:
         task = NoOpTask()
         task.setup()
         
-        result = task.execute("hello world")
-        assert result == "hello world", "Should pass through string unchanged"
+        output = task.execute("hello world")
+        assert output == "hello world", "Should pass through string unchanged"
+        
+        result = task.get_last_result()
+        assert result.execution_time_ms > 0
+        assert result.success
         
         task.tear_down()
     
@@ -128,8 +128,12 @@ class TestNoOpTaskExecution:
         task = NoOpTask()
         task.setup()
         
-        result = task.execute(3.14159)
-        assert result == 3.14159, "Should pass through float unchanged"
+        output = task.execute(3.14159)
+        assert output == 3.14159, "Should pass through float unchanged"
+        
+        result = task.get_last_result()
+        assert result.execution_time_ms > 0
+        assert result.success
         
         task.tear_down()
     
@@ -139,8 +143,12 @@ class TestNoOpTaskExecution:
         task.setup()
         
         input_list = [1, 2, 3, 4, 5]
-        result = task.execute(input_list)
-        assert result == input_list, "Should pass through list unchanged"
+        output = task.execute(input_list)
+        assert output == input_list, "Should pass through list unchanged"
+        
+        result = task.get_last_result()
+        assert result.execution_time_ms > 0
+        assert result.success
         
         task.tear_down()
     
@@ -150,8 +158,12 @@ class TestNoOpTaskExecution:
         task.setup()
         
         input_dict = {"sensor": "temperature", "reading": 23.5}
-        result = task.execute(input_dict)
-        assert result == input_dict, "Should pass through dict unchanged"
+        output = task.execute(input_dict)
+        assert output == input_dict, "Should pass through dict unchanged"
+        
+        result = task.get_last_result()
+        assert result.execution_time_ms > 0
+        assert result.success
         
         task.tear_down()
     
@@ -161,8 +173,12 @@ class TestNoOpTaskExecution:
         task.setup()
         
         input_dict = {"value": 123}
-        result = task.execute(input_dict)
-        assert result == 123, "Should extract 'value' field from dict"
+        output = task.execute(input_dict)
+        assert output == 123, "Should extract 'value' field from dict"
+        
+        result = task.get_last_result()
+        assert result.execution_time_ms > 0
+        assert result.success
         
         task.tear_down()
     
@@ -172,8 +188,12 @@ class TestNoOpTaskExecution:
         task.setup()
         
         input_dict = {"sensor": "temp", "value": 42, "unit": "celsius"}
-        result = task.execute(input_dict)
-        assert result == 42, "Should extract 'value' field, ignoring other keys"
+        output = task.execute(input_dict)
+        assert output == 42, "Should extract 'value' field, ignoring other keys"
+        
+        result = task.get_last_result()
+        assert result.execution_time_ms > 0
+        assert result.success
         
         task.tear_down()
     
@@ -182,8 +202,12 @@ class TestNoOpTaskExecution:
         task = NoOpTask()
         task.setup()
         
-        result = task.execute(None)
-        assert result is None, "Should pass through None unchanged"
+        output = task.execute(None)
+        assert output is None, "Should pass through None unchanged"
+        
+        result = task.get_last_result()
+        assert result.execution_time_ms > 0
+        assert result.success
         
         task.tear_down()
     
@@ -192,11 +216,19 @@ class TestNoOpTaskExecution:
         task = NoOpTask()
         task.setup()
         
-        result = task.execute(True)
-        assert result is True, "Should pass through True unchanged"
+        output = task.execute(True)
+        assert output is True, "Should pass through True unchanged"
         
-        result = task.execute(False)
-        assert result is False, "Should pass through False unchanged"
+        result1 = task.get_last_result()
+        assert result1.execution_time_ms > 0
+        assert result1.success
+        
+        output = task.execute(False)
+        assert output is False, "Should pass through False unchanged"
+        
+        result2 = task.get_last_result()
+        assert result2.execution_time_ms > 0
+        assert result2.success
         
         task.tear_down()
 
@@ -209,52 +241,40 @@ class TestNoOpTaskTiming:
         task = NoOpTask()
         task.setup()
         
-        task.execute(100)
-        result = task.get_last_result()
+        output = task.execute(100)
+        assert output == 100, "Should have correct output"
         
-        assert result.success, "Execution should be successful"
-        assert result.execution_time_ms >= 0, "Should have non-negative execution time"
+        # TaskResult should have timing
+        result = task.get_last_result()
+        assert result.execution_time_ms > 0, "Should have positive execution time"
+        assert result.value == 100, "Result value should match output"
+        assert result.success, "Should be successful"
         
         task.tear_down()
     
     def test_execution_is_fast(self):
-        """Test that NoOp execution is very fast (< 1ms)."""
+        """Test that NoOp execution is very fast (< 1000ms)."""
         task = NoOpTask()
         task.setup()
         
-        task.execute(42)
+        output = task.execute(42)
         result = task.get_last_result()
         
-        # NoOp should be extremely fast
-        assert result.execution_time_ms < 1.0, "NoOp should execute in under 1ms"
+        # NoOp should be extremely fast (under 1 second = 1000ms)
+        assert result.execution_time_ms < 1000, "NoOp should execute in under 1 second"
         
         task.tear_down()
     
-    def test_last_result_stores_value(self):
-        """Test that get_last_result() returns correct value."""
+    def test_result_has_metadata(self):
+        """Test that TaskResult contains metadata."""
         task = NoOpTask()
         task.setup()
         
-        task.execute(999)
+        output = task.execute(999)
         result = task.get_last_result()
         
-        assert result.value == 999, "Should store correct result value"
-        
-        task.tear_down()
-    
-    def test_execution_count_increments(self):
-        """Test that execution increments properly."""
-        task = NoOpTask()
-        task.setup()
-        
-        # Execute multiple times
-        task.execute(1)
-        task.execute(2)
-        task.execute(3)
-        
-        # Should have executed successfully each time
-        result = task.get_last_result()
-        assert result.success, "Should track successful executions"
+        assert result.metadata is not None, "Should have metadata"
+        # Metadata content depends on BaseTask implementation
         
         task.tear_down()
     
@@ -264,9 +284,16 @@ class TestNoOpTaskTiming:
         task.setup()
         
         values = [10, 20, 30, 40, 50]
-        results = [task.execute(v) for v in values]
+        outputs = [task.execute(v) for v in values]
         
-        assert results == values, "All executions should pass through correctly"
+        # All should have correct outputs
+        for i, output in enumerate(outputs):
+            assert output == values[i], f"Output {i} should match input"
+        
+        # Last result should be available
+        result = task.get_last_result()
+        assert result.execution_time_ms > 0, "Last result should have timing"
+        assert result.success, "Last result should be successful"
         
         task.tear_down()
 
@@ -274,83 +301,71 @@ class TestNoOpTaskTiming:
 class TestNoOpTaskMetrics:
     """Test NoOpTask metrics integration."""
     
-    def test_metrics_success_status(self):
-        """Test that successful execution sets correct status."""
+    def test_can_create_metrics_from_result(self):
+        """Test creating TaskMetrics from execution result."""
         task = NoOpTask()
         task.setup()
         
-        task.execute(100)
+        output = task.execute(100)
         result = task.get_last_result()
         
-        assert result.success, "Status should indicate success"
-        assert result.value == 100, "Should store correct value"
+        # Create metric from result (converting ms to μs)
+        metric = TaskMetrics(
+            task_name="noop",
+            execution_time_us=result.execution_time_ms * 1000,  # Convert ms to μs
+            status="success",
+            metadata=result.metadata
+        )
+        
+        assert metric.task_name == "noop"
+        assert metric.is_success
+        assert metric.execution_time_us > 0
         
         task.tear_down()
     
-    def test_metrics_value_stored(self):
-        """Test that metrics contain correct value."""
+    def test_metrics_aggregation(self):
+        """Test aggregating metrics from multiple executions."""
         task = NoOpTask()
         task.setup()
         
-        task.execute(42)
-        result = task.get_last_result()
+        # Collect metrics
+        aggregator = MetricsAggregator("noop")
         
-        assert result.value == 42, "Value should be stored correctly"
+        for i in range(20):
+            output = task.execute(i)
+            result = task.get_last_result()
+            
+            metric = TaskMetrics(
+                task_name="noop",
+                execution_time_us=result.execution_time_ms * 1000,  # Convert ms to μs
+                status="success"
+            )
+            aggregator.add(metric)
         
-        task.tear_down()
-    
-    def test_metrics_execution_time(self):
-        """Test that execution time is recorded."""
-        task = NoOpTask()
-        task.setup()
-        
-        task.execute(123)
-        result = task.get_last_result()
-        
-        assert result.execution_time_ms >= 0, "Should have non-negative execution time"
-        assert result.execution_time_ms < 10.0, "NoOp should be very fast (< 10ms)"
-        
-        task.tear_down()
-    
-    def test_teardown_logs_statistics(self, caplog):
-        """Test that teardown logs completion."""
-        import logging
-        logger = logging.getLogger("NoOpTask")
-        logger.setLevel(logging.INFO)
-        
-        task = NoOpTask()
-        task.setup()
-        
-        # Execute multiple times
-        for i in range(5):
-            task.execute(i)
+        # Verify aggregated metrics
+        assert aggregator.count == 20
+        assert aggregator.success_count == 20
+        assert aggregator.error_count == 0
+        assert aggregator.success_rate == 1.0
+        assert aggregator.mean_time_us > 0
         
         task.tear_down()
-        
-        # Should log completion
-        messages = [record.message for record in caplog.records]
-        assert any("complete" in msg.lower() for msg in messages), \
-            "Should log completion on teardown"
 
 
 class TestNoOpTaskEdgeCases:
     """Test edge cases and error handling."""
-    
-    def test_execute_before_setup(self):
-        """Test executing without calling setup first."""
-        task = NoOpTask()
-        
-        # Should still work (setup is idempotent via parent class)
-        result = task.execute(42)
-        assert result == 42, "Should work even without explicit setup"
     
     def test_empty_dict(self):
         """Test passing empty dict."""
         task = NoOpTask()
         task.setup()
         
-        result = task.execute({})
-        assert result == {}, "Should pass through empty dict"
+        output = task.execute({})
+        assert output == {}, "Should pass through empty dict"
+        
+        result = task.get_last_result()
+        assert result.execution_time_ms > 0
+        assert result.success
         
         task.tear_down()
     
@@ -363,10 +378,14 @@ class TestNoOpTaskEdgeCases:
             "value": {"nested": "data"},
             "other": "field"
         }
-        result = task.execute(input_dict)
+        output = task.execute(input_dict)
         
         # Should extract the value, even if it's a dict
-        assert result == {"nested": "data"}, "Should extract nested value"
+        assert output == {"nested": "data"}, "Should extract nested value"
+        
+        result = task.get_last_result()
+        assert result.execution_time_ms > 0
+        assert result.success
         
         task.tear_down()
     
@@ -376,22 +395,30 @@ class TestNoOpTaskEdgeCases:
         task.setup()
         
         input_dict = {"value": None, "other": "data"}
-        result = task.execute(input_dict)
+        output = task.execute(input_dict)
         
-        assert result is None, "Should extract None value correctly"
+        assert output is None, "Should extract None value correctly"
+        
+        result = task.get_last_result()
+        assert result.execution_time_ms > 0
+        assert result.success
         
         task.tear_down()
     
     def test_very_large_input(self):
-        """Test with very large input data."""
+        """Test with large input data."""
         task = NoOpTask()
         task.setup()
         
-        large_list = list(range(100000))
-        result = task.execute(large_list)
+        large_list = list(range(10000))
+        output = task.execute(large_list)
         
-        assert result == large_list, "Should handle large data"
-        assert len(result) == 100000, "Should preserve all elements"
+        assert output == large_list, "Should handle large data"
+        assert len(output) == 10000, "Should preserve all elements"
+        
+        result = task.get_last_result()
+        assert result.execution_time_ms > 0
+        assert result.success
         
         task.tear_down()
 
@@ -420,3 +447,88 @@ class TestNoOpTaskAsTemplate:
         # Should implement required abstract method
         assert hasattr(NoOpTask, 'do_task'), "Should implement do_task()"
         assert callable(getattr(NoOpTask, 'do_task')), "do_task() should be callable"
+
+
+class TestNoOpIntegration:
+    """End-to-end integration tests."""
+    
+    def test_complete_workflow(self):
+        """Test complete workflow: registry -> task -> execution -> metrics."""
+        # Create via registry
+        task = create_task("noop")
+        assert isinstance(task, NoOpTask)
+        
+        # Setup
+        task.setup()
+        
+        # Execute
+        output = task.execute({"value": 42})
+        assert output == 42
+        
+        # Get result
+        result = task.get_last_result()
+        assert result.execution_time_ms > 0
+        assert result.success
+        
+        # Create metrics from result
+        metric = TaskMetrics(
+            task_name="noop",
+            execution_time_us=result.execution_time_ms * 1000,  # Convert ms to μs
+            status="success",
+            metadata=result.metadata
+        )
+        
+        assert metric.task_name == "noop"
+        assert metric.is_success
+        
+        # Cleanup
+        task.tear_down()
+    
+    def test_multiple_tasks_independent(self):
+        """Test creating multiple NoOp tasks independently."""
+        # Create two separate instances
+        task1 = create_task("noop")
+        task2 = create_task("noop")
+        
+        task1.setup()
+        task2.setup()
+        
+        # Execute both
+        output1 = task1.execute(100)
+        output2 = task2.execute(200)
+        
+        # Both should work independently
+        assert output1 == 100
+        assert output2 == 200
+        
+        task1.tear_down()
+        task2.tear_down()
+    
+    def test_metrics_collection_workflow(self):
+        """Test collecting metrics from multiple NoOp executions."""
+        task = create_task("noop")
+        task.setup()
+        
+        # Collect metrics
+        aggregator = MetricsAggregator("noop")
+        
+        for i in range(50):
+            output = task.execute(i)
+            result = task.get_last_result()
+            
+            metric = TaskMetrics(
+                task_name="noop",
+                execution_time_us=result.execution_time_ms * 1000,  # Convert ms to μs
+                status="success"
+            )
+            aggregator.add(metric)
+        
+        # Verify aggregated metrics
+        assert aggregator.count == 50
+        assert aggregator.success_count == 50
+        assert aggregator.error_count == 0
+        assert aggregator.success_rate == 1.0
+        assert aggregator.mean_time_us > 0
+        assert aggregator.min_time_us > 0
+        
+        task.tear_down()

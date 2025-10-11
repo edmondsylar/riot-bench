@@ -1,7 +1,3 @@
-"""Tests for task implementations.
-
-Test modules:
-- test_noop: Tests for NoOperation baseline task
-"""
+"""Tests for task implementations."""
 
 __all__ = []

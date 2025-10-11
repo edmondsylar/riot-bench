@@ -11,6 +11,7 @@ to measure the pure overhead of the PyRIoTBench framework. It's useful for:
 from __future__ import annotations
 
 from typing import Any
+import logging
 
 from pyriotbench.core import BaseTask, register_task
 
@@ -111,5 +112,4 @@ class NoOpTask(BaseTask):
         
         Minimal cleanup since no resources were allocated.
         """
-        super().tear_down()
         self._logger.info("NoOpTask complete")

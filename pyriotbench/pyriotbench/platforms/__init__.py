@@ -7,4 +7,6 @@ This package contains adapters for various streaming platforms:
 - ray: Ray integration
 """
 
-__all__ = []
+from .standalone import StandaloneRunner
+
+__all__ = ["StandaloneRunner"]
