@@ -9,4 +9,13 @@ This package contains all 26 micro-benchmarks organized by category:
 - visualize: Visualization tasks (1 task)
 """
 
+# Import baseline tasks
+from pyriotbench.tasks import noop  # noqa: F401
+
+# Import submodules to trigger registration
+from pyriotbench.tasks import aggregate  # noqa: F401
+from pyriotbench.tasks import filter  # noqa: F401
+from pyriotbench.tasks import statistics  # noqa: F401
+from pyriotbench.tasks import predict  # noqa: F401
+
 __all__ = []

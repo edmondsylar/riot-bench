@@ -432,6 +432,285 @@ def batch_command(
         sys.exit(1)
 
 
+@cli.group("beam")
+def beam_group():
+    """
+    Apache Beam pipeline execution commands.
+    
+    Run tasks on Apache Beam pipelines with DirectRunner (local) or
+    DataflowRunner (Google Cloud).
+    
+    Example:
+        $ pyriotbench beam run-file kalman_filter input.txt -o output.txt
+        $ pyriotbench beam run-batch noop *.txt -o output_dir/
+    """
+    pass
+
+
+@beam_group.command("run-file")
+@click.argument('task_name')
+@click.argument('input_file', type=click.Path(exists=True))
+@click.option(
+    '--output', '-o',
+    required=True,
+    type=click.Path(),
+    help='Output file path'
+)
+@click.option(
+    '--config', '-c',
+    type=click.Path(exists=True),
+    help='Configuration file (YAML or properties)'
+)
+@click.option(
+    '--skip-header',
+    is_flag=True,
+    help='Skip first line of input file'
+)
+@click.option(
+    '--runner',
+    type=click.Choice(['DirectRunner', 'DataflowRunner'], case_sensitive=False),
+    default='DirectRunner',
+    help='Beam runner to use (default: DirectRunner)'
+)
+@click.option(
+    '--project',
+    help='GCP project ID (required for DataflowRunner)'
+)
+@click.option(
+    '--region',
+    default='us-central1',
+    help='GCP region (default: us-central1)'
+)
+@click.option(
+    '--temp-location',
+    help='GCS path for temp files (required for DataflowRunner)'
+)
+@click.option(
+    '--staging-location',
+    help='GCS path for staging (required for DataflowRunner)'
+)
+@click.option(
+    '--verbose', '-v',
+    is_flag=True,
+    help='Show detailed output'
+)
+def beam_run_file(
+    task_name: str,
+    input_file: str,
+    output: str,
+    config: Optional[str],
+    skip_header: bool,
+    runner: str,
+    project: Optional[str],
+    region: str,
+    temp_location: Optional[str],
+    staging_location: Optional[str],
+    verbose: bool
+):
+    """
+    Run task on a file using Apache Beam.
+    
+    Constructs and executes a Beam pipeline that reads from INPUT_FILE,
+    processes through TASK_NAME, and writes to OUTPUT.
+    
+    Example:
+        $ pyriotbench beam run-file kalman_filter sensor.txt -o filtered.txt
+        $ pyriotbench beam run-file noop data.txt -o output.txt --skip-header
+    """
+    from pyriotbench.platforms.beam.runner import BeamRunner
+    from pyriotbench.core.config import BenchmarkConfig
+    from apache_beam.options.pipeline_options import PipelineOptions
+    
+    if verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
+    
+    # Load configuration
+    task_config = {}
+    if config:
+        try:
+            cfg = BenchmarkConfig.from_yaml(config)
+            task_config = cfg.to_flat_dict()
+        except Exception as e:
+            click.echo(f"\nError loading config: {e}", err=True)
+            sys.exit(1)
+    
+    # Setup pipeline options
+    pipeline_options = PipelineOptions()
+    
+    if runner == 'DataflowRunner':
+        # Validate Dataflow requirements
+        if not all([project, temp_location, staging_location]):
+            click.echo(
+                "\nError: DataflowRunner requires --project, --temp-location, "
+                "and --staging-location",
+                err=True
+            )
+            sys.exit(1)
+        
+        # Create Dataflow runner
+        beam_runner = BeamRunner.create_dataflow_runner(
+            task_name,
+            task_config,
+            project,
+            region,
+            temp_location,
+            staging_location
+        )
+    else:
+        # Create DirectRunner (local)
+        beam_runner = BeamRunner(task_name, task_config, pipeline_options)
+    
+    # Run pipeline
+    click.echo(f"\n{'='*60}")
+    click.echo(f"Beam Pipeline Execution")
+    click.echo(f"{'='*60}")
+    click.echo(f"Task: {task_name}")
+    click.echo(f"Runner: {runner}")
+    click.echo(f"Input: {input_file}")
+    click.echo(f"Output: {output}")
+    if config:
+        click.echo(f"Config: {config}")
+    click.echo(f"{'='*60}\n")
+    
+    try:
+        metrics = beam_runner.run_file(input_file, output, skip_header)
+        
+        # Print metrics
+        click.echo(f"\n{'='*60}")
+        click.echo("Execution Metrics")
+        click.echo(f"{'='*60}")
+        click.echo(f"Elements read: {metrics['elements_read']}")
+        click.echo(f"Elements written: {metrics['elements_written']}")
+        click.echo(f"Success rate: {metrics['success_rate']:.1%}")
+        click.echo(f"Execution time: {metrics['execution_time_s']:.2f}s")
+        click.echo(f"Throughput: {metrics['throughput_per_s']:.1f} records/s")
+        click.echo(f"{'='*60}\n")
+        
+    except Exception as e:
+        click.echo(f"\nError during pipeline execution: {e}", err=True)
+        if verbose:
+            import traceback
+            traceback.print_exc()
+        sys.exit(1)
+
+
+@beam_group.command("run-batch")
+@click.argument('task_name')
+@click.argument('input_files', nargs=-1, required=True, type=click.Path(exists=True))
+@click.option(
+    '--output-dir', '-o',
+    required=True,
+    type=click.Path(),
+    help='Output directory for processed files'
+)
+@click.option(
+    '--config', '-c',
+    type=click.Path(exists=True),
+    help='Configuration file (YAML or properties)'
+)
+@click.option(
+    '--skip-header',
+    is_flag=True,
+    help='Skip first line of each input file'
+)
+@click.option(
+    '--runner',
+    type=click.Choice(['DirectRunner', 'DataflowRunner'], case_sensitive=False),
+    default='DirectRunner',
+    help='Beam runner to use (default: DirectRunner)'
+)
+@click.option(
+    '--verbose', '-v',
+    is_flag=True,
+    help='Show detailed output'
+)
+def beam_run_batch(
+    task_name: str,
+    input_files: tuple,
+    output_dir: str,
+    config: Optional[str],
+    skip_header: bool,
+    runner: str,
+    verbose: bool
+):
+    """
+    Run task on multiple files using Apache Beam.
+    
+    Processes multiple INPUT_FILES, creating one output file per input.
+    
+    Example:
+        $ pyriotbench beam run-batch noop file1.txt file2.txt -o output/
+        $ pyriotbench beam run-batch kalman *.txt -o results/ -c config.yaml
+    """
+    from pyriotbench.platforms.beam.runner import BeamRunner
+    from pyriotbench.core.config import BenchmarkConfig
+    
+    if verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
+    
+    # Load configuration
+    task_config = {}
+    if config:
+        try:
+            cfg = BenchmarkConfig.from_yaml(config)
+            task_config = cfg.to_flat_dict()
+        except Exception as e:
+            click.echo(f"\nError loading config: {e}", err=True)
+            sys.exit(1)
+    
+    # Create runner
+    beam_runner = BeamRunner(task_name, task_config)
+    
+    # Run batch
+    click.echo(f"\n{'='*60}")
+    click.echo(f"Beam Batch Processing")
+    click.echo(f"{'='*60}")
+    click.echo(f"Task: {task_name}")
+    click.echo(f"Runner: {runner}")
+    click.echo(f"Files: {len(input_files)}")
+    click.echo(f"Output: {output_dir}")
+    if config:
+        click.echo(f"Config: {config}")
+    click.echo(f"{'='*60}\n")
+    
+    try:
+        results = beam_runner.run_batch(list(input_files), output_dir, skip_header)
+        
+        # Print summary
+        successful = [r for r in results if 'error' not in r]
+        failed = [r for r in results if 'error' in r]
+        
+        total_read = sum(r.get('elements_read', 0) for r in successful)
+        total_written = sum(r.get('elements_written', 0) for r in successful)
+        total_time = sum(r.get('execution_time_s', 0) for r in successful)
+        avg_throughput = total_read / total_time if total_time > 0 else 0
+        
+        click.echo(f"\n{'='*60}")
+        click.echo("Batch Summary")
+        click.echo(f"{'='*60}")
+        click.echo(f"Files processed: {len(successful)}/{len(results)}")
+        if failed:
+            click.echo(f"Files failed: {len(failed)}")
+        click.echo(f"Total elements read: {total_read}")
+        click.echo(f"Total elements written: {total_written}")
+        click.echo(f"Total time: {total_time:.2f}s")
+        click.echo(f"Average throughput: {avg_throughput:.1f} records/s")
+        click.echo(f"{'='*60}\n")
+        
+        if failed and verbose:
+            click.echo("Failed files:")
+            for r in failed:
+                click.echo(f"  • {r['input_file']}: {r['error']}")
+            click.echo()
+        
+    except Exception as e:
+        click.echo(f"\nError during batch processing: {e}", err=True)
+        if verbose:
+            import traceback
+            traceback.print_exc()
+        sys.exit(1)
+
+
 def main():
     """Entry point for CLI."""
     cli()
