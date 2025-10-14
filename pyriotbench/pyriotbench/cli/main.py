@@ -711,6 +711,269 @@ def beam_run_batch(
         sys.exit(1)
 
 
+@cli.group("ray")
+def ray_group():
+    """
+    Ray distributed computing execution commands.
+    
+    Run tasks on Ray clusters for distributed parallel processing.
+    Uses actor-based execution model for task distribution.
+    
+    Example:
+        $ pyriotbench ray run-file kalman_filter input.txt -o output.txt
+        $ pyriotbench ray run-batch noop *.txt -o output_dir/ --actors 8
+    """
+    pass
+
+
+@ray_group.command("run-file")
+@click.argument('task_name')
+@click.argument('input_file', type=click.Path(exists=True))
+@click.option(
+    '--output', '-o',
+    type=click.Path(),
+    help='Output file path (optional)'
+)
+@click.option(
+    '--config', '-c',
+    type=click.Path(exists=True),
+    help='Configuration file (YAML or properties)'
+)
+@click.option(
+    '--actors', '-a',
+    type=int,
+    default=4,
+    help='Number of Ray actors for parallel processing (default: 4)'
+)
+@click.option(
+    '--verbose', '-v',
+    is_flag=True,
+    help='Show detailed output'
+)
+def ray_run_file(
+    task_name: str,
+    input_file: str,
+    output: Optional[str],
+    config: Optional[str],
+    actors: int,
+    verbose: bool
+):
+    """
+    Run task on a file using Ray distributed computing.
+    
+    Distributes work across multiple Ray actors for parallel processing.
+    Each actor runs an instance of the task independently.
+    
+    Example:
+        $ pyriotbench ray run-file kalman_filter sensor.txt -o filtered.txt
+        $ pyriotbench ray run-file senml_parse data.txt -o output.txt --actors 8
+        $ pyriotbench ray run-file noop input.txt --actors 16 -v
+    """
+    try:
+        from pyriotbench.platforms.ray.runner import RayRunner
+        from pyriotbench.core.config import BenchmarkConfig
+    except ImportError as e:
+        click.echo(f"Error: Ray not installed. Install with: pip install ray", err=True)
+        click.echo(f"Details: {e}", err=True)
+        sys.exit(1)
+    
+    if verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
+        logging.getLogger("RayRunner").setLevel(logging.DEBUG)
+    
+    # Load configuration
+    task_config = {}
+    if config:
+        try:
+            bench_config = BenchmarkConfig.from_file(config)
+            task_config = bench_config.to_flat_dict()
+            if verbose:
+                click.echo(f"Loaded configuration from {config}")
+        except Exception as e:
+            click.echo(f"Warning: Could not load config file: {e}", err=True)
+    
+    # Validate task
+    from pyriotbench.core.registry import TaskRegistry
+    if not TaskRegistry.is_registered(task_name):
+        click.echo(f"Error: Task '{task_name}' is not registered.", err=True)
+        click.echo(f"Available tasks: {', '.join(TaskRegistry.list_tasks())}", err=True)
+        sys.exit(1)
+    
+    click.echo(f"Starting Ray execution: task={task_name}, actors={actors}")
+    click.echo(f"Input: {input_file}")
+    if output:
+        click.echo(f"Output: {output}")
+    click.echo()
+    
+    try:
+        # Create Ray runner with specified number of actors
+        runner = RayRunner(num_actors=actors)
+        
+        # Run file processing
+        metrics = runner.run_file(
+            task_name=task_name,
+            input_file=input_file,
+            output_file=output,
+            config=task_config
+        )
+        
+        # Shutdown Ray
+        runner.shutdown()
+        
+        # Display metrics
+        click.echo("\n" + "="*60)
+        click.echo("Ray Execution Complete!")
+        click.echo("="*60)
+        click.echo(f"Total records:      {metrics['total_records']}")
+        click.echo(f"Processed:          {metrics['processed_records']}")
+        click.echo(f"Valid results:      {metrics['valid_results']}")
+        click.echo(f"None filtered:      {metrics['none_filtered']}")
+        click.echo(f"Errors:             {metrics['errors']}")
+        click.echo(f"Total time:         {metrics['total_time']:.2f}s")
+        click.echo(f"Throughput:         {metrics['throughput']:.1f} records/sec")
+        click.echo(f"Actors used:        {metrics['num_actors']}")
+        
+        if verbose and 'actor_metrics' in metrics:
+            click.echo(f"\nPer-Actor Metrics:")
+            for i, am in enumerate(metrics['actor_metrics']):
+                click.echo(f"  Actor {i}: {am['total_processed']} processed, "
+                          f"{am['avg_time']*1000:.2f}ms avg")
+        
+        click.echo("="*60 + "\n")
+        
+    except Exception as e:
+        click.echo(f"\nError during Ray execution: {e}", err=True)
+        if verbose:
+            import traceback
+            traceback.print_exc()
+        sys.exit(1)
+
+
+@ray_group.command("run-batch")
+@click.argument('task_name')
+@click.argument('input_files', nargs=-1, type=click.Path(exists=True), required=True)
+@click.option(
+    '--output-dir', '-o',
+    type=click.Path(),
+    help='Output directory for result files (optional)'
+)
+@click.option(
+    '--config', '-c',
+    type=click.Path(exists=True),
+    help='Configuration file (YAML or properties)'
+)
+@click.option(
+    '--actors', '-a',
+    type=int,
+    default=4,
+    help='Number of Ray actors for parallel processing (default: 4)'
+)
+@click.option(
+    '--verbose', '-v',
+    is_flag=True,
+    help='Show detailed output'
+)
+def ray_run_batch(
+    task_name: str,
+    input_files: tuple,
+    output_dir: Optional[str],
+    config: Optional[str],
+    actors: int,
+    verbose: bool
+):
+    """
+    Run task on multiple files using Ray (batch processing).
+    
+    Processes multiple input files in sequence using a Ray actor pool.
+    Each file is processed independently with the same task configuration.
+    
+    Example:
+        $ pyriotbench ray run-batch noop file1.txt file2.txt file3.txt
+        $ pyriotbench ray run-batch senml_parse *.json -o output/ --actors 8
+        $ pyriotbench ray run-batch kalman_filter data/*.txt -o results/ -v
+    """
+    try:
+        from pyriotbench.platforms.ray.runner import RayRunner
+        from pyriotbench.core.config import BenchmarkConfig
+    except ImportError as e:
+        click.echo(f"Error: Ray not installed. Install with: pip install ray", err=True)
+        click.echo(f"Details: {e}", err=True)
+        sys.exit(1)
+    
+    if verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
+        logging.getLogger("RayRunner").setLevel(logging.DEBUG)
+    
+    # Load configuration
+    task_config = {}
+    if config:
+        try:
+            bench_config = BenchmarkConfig.from_file(config)
+            task_config = bench_config.to_flat_dict()
+            if verbose:
+                click.echo(f"Loaded configuration from {config}")
+        except Exception as e:
+            click.echo(f"Warning: Could not load config file: {e}", err=True)
+    
+    # Validate task
+    from pyriotbench.core.registry import TaskRegistry
+    if not TaskRegistry.is_registered(task_name):
+        click.echo(f"Error: Task '{task_name}' is not registered.", err=True)
+        click.echo(f"Available tasks: {', '.join(TaskRegistry.list_tasks())}", err=True)
+        sys.exit(1)
+    
+    click.echo(f"Starting Ray batch processing: task={task_name}, actors={actors}")
+    click.echo(f"Files to process: {len(input_files)}")
+    if output_dir:
+        click.echo(f"Output directory: {output_dir}")
+    click.echo()
+    
+    try:
+        # Create Ray runner
+        runner = RayRunner(num_actors=actors)
+        
+        # Run batch processing
+        batch_metrics = runner.run_batch(
+            task_name=task_name,
+            input_files=list(input_files),
+            output_dir=output_dir,
+            config=task_config
+        )
+        
+        # Shutdown Ray
+        runner.shutdown()
+        
+        # Display aggregate metrics
+        click.echo("\n" + "="*60)
+        click.echo("Ray Batch Processing Complete!")
+        click.echo("="*60)
+        click.echo(f"Files processed:    {batch_metrics['files_processed']}")
+        click.echo(f"Total records:      {batch_metrics['total_records']}")
+        click.echo(f"Processed:          {batch_metrics['processed_records']}")
+        click.echo(f"Errors:             {batch_metrics['errors']}")
+        click.echo(f"Batch time:         {batch_metrics['batch_time']:.2f}s")
+        click.echo(f"Throughput:         {batch_metrics['throughput']:.1f} records/sec")
+        
+        if verbose and 'file_metrics' in batch_metrics:
+            click.echo(f"\nPer-File Metrics:")
+            for i, fm in enumerate(batch_metrics['file_metrics'], 1):
+                if 'error' in fm:
+                    click.echo(f"  File {i}: ERROR - {fm['error']}")
+                else:
+                    click.echo(f"  File {i}: {fm['processed_records']} records, "
+                              f"{fm['total_time']:.2f}s, "
+                              f"{fm['throughput']:.1f} rec/s")
+        
+        click.echo("="*60 + "\n")
+        
+    except Exception as e:
+        click.echo(f"\nError during Ray batch processing: {e}", err=True)
+        if verbose:
+            import traceback
+            traceback.print_exc()
+        sys.exit(1)
+
+
 def main():
     """Entry point for CLI."""
     cli()
