@@ -1,0 +1,13 @@
+astor
+astunparse
+intervaltree
+ast_scope # requires pip, no conda package available
+networkx
+matplotlib
+sphinx_rtd_theme
+simpy # conda install -c conda-forge simpy
+scipy
+graphviz # conda requires 'python-graphviz' and 'pydot' as well
+shapely
+sklearn
+multiprocess

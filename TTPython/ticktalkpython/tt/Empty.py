@@ -1,0 +1,2 @@
+class TTEmpty():
+    pass
