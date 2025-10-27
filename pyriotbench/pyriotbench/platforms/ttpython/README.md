@@ -68,7 +68,64 @@ noop_sq = wrap_task_as_sq(NoOpTask, config={})
 
 ## Usage
 
-### Basic Usage
+### Command-Line Interface (TTPyRIoTBench CLI)
+
+The easiest way to run benchmarks with TTPython is using the CLI:
+
+```bash
+# List all TTPython-compatible tasks
+pyriotbench ttpython list
+
+# Run a task with input and output files
+pyriotbench ttpython run noop input.txt -o output.txt
+
+# Run with configuration file
+pyriotbench ttpython run senml_parse data.json -o parsed.txt -c config.yaml
+
+# Run with verbose output
+pyriotbench ttpython run kalman_filter sensor.txt -o filtered.txt -v
+```
+
+**Example Session:**
+```bash
+$ pyriotbench ttpython list
+============================================================
+TTPython-Compatible Tasks (12 total)
+============================================================
+
+  • noop
+  • senml_parse
+  • bloom_filter_check
+  • kalman_filter
+  ...
+
+$ echo -e "1\n2\n3\n4\n5" > input.txt
+$ pyriotbench ttpython run noop input.txt -o output.txt
+
+============================================================
+TTPython Execution
+============================================================
+Task: noop
+Input: input.txt
+Output: output.txt
+============================================================
+
+Results written to output.txt
+
+============================================================
+Execution Metrics
+============================================================
+Elements processed:  5
+Successful results:  5
+Success rate:        100.0%
+Execution time:      0.01s
+Throughput:          500.0 records/s
+============================================================
+```
+
+### Programmatic Usage (Python API)
+
+For more control, use the Python API directly:
 
 ```python
 from pyriotbench.tasks.noop import NoOpTask
@@ -102,7 +159,32 @@ results = runner.run(task_sqs, pipeline_func, input_stream)
 
 ## Examples
 
-See `examples/ttpython_noop_example.py` for a complete working example.
+### CLI Examples
+
+See `examples/ttpython_cli_example.py` for CLI usage examples:
+
+```bash
+cd pyriotbench
+python examples/ttpython_cli_example.py
+```
+
+Or use the CLI directly:
+
+```bash
+# List tasks
+pyriotbench ttpython list
+
+# Run NoOpTask
+echo -e "1\n2\n3\n4\n5" > test.txt
+pyriotbench ttpython run noop test.txt -o output.txt
+
+# Run with verbose output
+pyriotbench ttpython run noop test.txt -o output.txt -v
+```
+
+### Python API Examples
+
+See `examples/ttpython_noop_example.py` for a complete working example:
 
 ```bash
 cd pyriotbench
@@ -111,7 +193,7 @@ python examples/ttpython_noop_example.py
 
 ## Implementation Status
 
-### ✅ Phase 1 Complete - Goal 1 Achieved
+### ✅ Phase 1 Complete - Goal 1 Achieved + CLI
 
 **Goal:** Run one PyRIoTBench task (NoOperationTask) as a TTPython SQ
 
@@ -125,12 +207,18 @@ python examples/ttpython_noop_example.py
 - [x] Run NoOpTask via TTPython adapter
 - [x] Verify correct output
 - [x] Document the adapter
+- [x] **Add TTPython CLI commands (TTPyRIoTBench)**
+- [x] **Create CLI examples and documentation**
 
 **Test Results:**
 ```
 tests/platforms/test_ttpython/test_adapter.py
   6 passed, 2 skipped
   Coverage: 69% (runner.py), 52% (adapter.py)
+
+CLI Commands:
+  pyriotbench ttpython list       - List tasks
+  pyriotbench ttpython run        - Run benchmarks
 ```
 
 ## Design Decisions

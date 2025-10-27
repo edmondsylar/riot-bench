@@ -974,6 +974,194 @@ def ray_run_batch(
         sys.exit(1)
 
 
+@cli.group("ttpython")
+def ttpython_group():
+    """
+    TTPython time-sensitive execution commands.
+    
+    Run tasks on TTPython's distributed time-aware dataflow framework.
+    Tasks are wrapped as Stream Queries (SQs) for time-sensitive processing.
+    
+    Example:
+        $ pyriotbench ttpython run noop input.txt -o output.txt
+        $ pyriotbench ttpython run senml_parse data.json -o parsed.txt
+    """
+    pass
+
+
+@ttpython_group.command("run")
+@click.argument('task_name')
+@click.argument('input_file', type=click.Path(exists=True))
+@click.option(
+    '--output', '-o',
+    type=click.Path(),
+    help='Output file path (optional, defaults to stdout)'
+)
+@click.option(
+    '--config', '-c',
+    type=click.Path(exists=True),
+    help='Configuration file (YAML or properties)'
+)
+@click.option(
+    '--verbose', '-v',
+    is_flag=True,
+    help='Show detailed output'
+)
+def ttpython_run(
+    task_name: str,
+    input_file: str,
+    output: Optional[str],
+    config: Optional[str],
+    verbose: bool
+):
+    """
+    Run task using TTPython execution framework.
+    
+    Wraps the task as a TTPython Stream Query and executes it with
+    time-sensitive dataflow semantics.
+    
+    Example:
+        $ pyriotbench ttpython run noop input.txt -o output.txt
+        $ pyriotbench ttpython run senml_parse data.json -o parsed.txt -c config.yaml
+    """
+    try:
+        from pyriotbench.platforms.ttpython import TTPythonRunner
+        from pyriotbench.core.config import BenchmarkConfig
+        from pyriotbench.core.registry import TaskRegistry
+    except ImportError as e:
+        click.echo(f"Error: TTPython dependencies not installed.", err=True)
+        click.echo(f"Details: {e}", err=True)
+        sys.exit(1)
+    
+    if verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
+        logging.getLogger("TTPythonRunner").setLevel(logging.DEBUG)
+    
+    # Load configuration
+    task_config = {}
+    if config:
+        try:
+            bench_config = BenchmarkConfig.from_file(config)
+            task_config = bench_config.to_flat_dict()
+            if verbose:
+                click.echo(f"Loaded configuration from {config}")
+        except Exception as e:
+            click.echo(f"Warning: Could not load config file: {e}", err=True)
+    
+    # Validate task
+    if not TaskRegistry.is_registered(task_name):
+        click.echo(f"Error: Task '{task_name}' is not registered.", err=True)
+        click.echo(f"Available tasks: {', '.join(TaskRegistry.list_tasks())}", err=True)
+        sys.exit(1)
+    
+    # Get task class
+    task_class = TaskRegistry.get(task_name)
+    
+    # Read input data
+    click.echo(f"\n{'='*60}")
+    click.echo(f"TTPython Execution")
+    click.echo(f"{'='*60}")
+    click.echo(f"Task: {task_name}")
+    click.echo(f"Input: {input_file}")
+    if output:
+        click.echo(f"Output: {output}")
+    if config:
+        click.echo(f"Config: {config}")
+    click.echo(f"{'='*60}\n")
+    
+    try:
+        # Read input data
+        input_data = []
+        with open(input_file, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    input_data.append(line)
+        
+        if verbose:
+            click.echo(f"Read {len(input_data)} lines from input file")
+        
+        # Create TTPython runner
+        runner = TTPythonRunner(config=task_config)
+        
+        # Create pipeline
+        task_sqs, pipeline_func = runner.create_pipeline([task_class])
+        
+        if verbose:
+            click.echo(f"Created TTPython pipeline: {pipeline_func.__name__}")
+            click.echo(f"Number of Stream Queries: {len(task_sqs)}")
+        
+        # Execute
+        import time
+        start_time = time.time()
+        results = runner.run(task_sqs, pipeline_func, input_data)
+        end_time = time.time()
+        
+        # Write output
+        if output:
+            with open(output, 'w') as f:
+                for result in results:
+                    if result is not None:
+                        f.write(str(result) + '\n')
+            click.echo(f"\nResults written to {output}")
+        else:
+            click.echo("\nResults:")
+            for i, result in enumerate(results, 1):
+                if result is not None:
+                    click.echo(f"  {i}. {result}")
+        
+        # Print metrics
+        execution_time = end_time - start_time
+        success_count = sum(1 for r in results if r is not None)
+        
+        click.echo(f"\n{'='*60}")
+        click.echo("Execution Metrics")
+        click.echo(f"{'='*60}")
+        click.echo(f"Elements processed:  {len(input_data)}")
+        click.echo(f"Successful results:  {success_count}")
+        click.echo(f"Success rate:        {success_count/len(input_data):.1%}")
+        click.echo(f"Execution time:      {execution_time:.2f}s")
+        click.echo(f"Throughput:          {len(input_data)/execution_time:.1f} records/s")
+        click.echo(f"{'='*60}\n")
+        
+    except Exception as e:
+        click.echo(f"\nError during TTPython execution: {e}", err=True)
+        if verbose:
+            import traceback
+            traceback.print_exc()
+        sys.exit(1)
+
+
+@ttpython_group.command("list")
+def ttpython_list():
+    """
+    List tasks compatible with TTPython platform.
+    
+    Shows all registered tasks that can be wrapped as TTPython Stream Queries.
+    
+    Example:
+        $ pyriotbench ttpython list
+    """
+    from pyriotbench.core.registry import TaskRegistry
+    
+    tasks = TaskRegistry.list_tasks()
+    
+    if not tasks:
+        click.echo("No tasks registered.", err=True)
+        sys.exit(1)
+    
+    click.echo(f"\n{'='*60}")
+    click.echo(f"TTPython-Compatible Tasks ({len(tasks)} total)")
+    click.echo(f"{'='*60}\n")
+    
+    for task_name in sorted(tasks):
+        click.echo(f"  • {task_name}")
+    
+    click.echo(f"\n{'='*60}")
+    click.echo("All registered tasks can be wrapped as TTPython SQs")
+    click.echo(f"{'='*60}\n")
+
+
 def main():
     """Entry point for CLI."""
     cli()
