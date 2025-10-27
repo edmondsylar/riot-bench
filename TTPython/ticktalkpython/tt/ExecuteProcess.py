@@ -69,7 +69,11 @@ class TTExecutionContext:
         '''
         for t in self.inputs:
             if isinstance(t, Token.TTToken):
-                t.time = Time.TTTimeSpec.toTime(t.time, clock_list=clocks)
+                # Only convert if t.time is a TTTimeSpec; if it's already a TTTime, skip conversion
+                if isinstance(t.time, Time.TTTimeSpec):
+                    t.time = Time.TTTimeSpec.toTime(t.time, clock_list=clocks)
+                elif not isinstance(t.time, Time.TTTime):
+                    raise TypeError(f'Token time must be TTTime or TTTimeSpec, got {type(t.time)}')
             else: raise ValueError('input to TTExecutionContext is not a token!')
 
     def __repr__(self):
@@ -215,17 +219,39 @@ class TTExecuteProcess:
             "simulation is incompatible with new SQ execution model")
 
         self.sim = sim
+        
+        # In simulation mode, replace multiprocess.Queue with regular queue.Queue
+        # because we execute jobs directly in the same process
+        import queue as queue_module
+        self.sq_output_queue = queue_module.Queue()
+        self.logger.debug("Replaced mp.Queue with queue.Queue for simulation mode")
 
         self.logger.info('run sim loop Execute')
         next_msg = None
         try:
             while True:
+                # In simulation mode with direct execution, prioritize checking for completed jobs
+                # before processing new messages to avoid infinite loops
+                if self.sim:
+                    try:
+                        job_output = self.check_jobs()
+                        if job_output:
+                            self.logger.debug(f"Found job output: {job_output}")
+                            sq_job = self.get_job(job_output.id)
+                            state = job_output.state
+                            self.handle_sq_output(sq_job, state, job_output.output)
+                            continue  # Process all queued outputs before getting new messages
+                    except queue.Empty:
+                        pass  # No output ready, proceed to handle messages
+                
                 try:
                     next_msg = self.get_next_input()
 
                 except queue.Empty:
                     try:
-                        yield self.sim.timeout(math.inf) #we wait infinitely because an arriving input should simpy interrupt the process
+                        # Use a small timeout instead of math.inf to allow processing queued results
+                        # from directly executed SQ jobs in simulation mode
+                        yield self.sim.timeout(0.001)
                     except simpy.Interrupt:
                         continue
                 except simpy.Interrupt:
@@ -239,15 +265,22 @@ class TTExecuteProcess:
                         print('caught an error; could nuke process, but won\'t')
                         traceback.print_exc()
 
-                try:
-                    job_output = self.check_jobs()
-                except queue.Empty:
-                    job_output = None
+                # Check for outputs again after handling message (for physical mode and compatibility)
+                if not self.sim:  # Only check again in physical mode to avoid double-checking in sim mode
+                    try:
+                        job_output = self.check_jobs()
+                        if job_output:
+                            self.logger.debug(f"Found job output: {job_output}")
+                        else:
+                            self.logger.debug("check_jobs returned None")
+                    except queue.Empty:
+                        job_output = None
+                        # self.logger.debug("Queue empty")
 
-                if job_output:
-                    sq_job = self.get_job(job_output.id)
-                    state = job_output.state
-                    self.handle_sq_output(sq_job, state, job_output.output)
+                    if job_output:
+                        sq_job = self.get_job(job_output.id)
+                        state = job_output.state
+                        self.handle_sq_output(sq_job, state, job_output.output)
 
         except KeyboardInterrupt:
             raise
@@ -430,10 +463,19 @@ class TTExecuteProcess:
                                      sq_execute.function)
             self.add_job(sq_job)
 
-            p = mp.Process(
-                target=self.run_job,
-                args=[sq_closure, execute_context.inputs, sq_execute.kwargs])
-            p.start()
+            # In simulation mode, execute directly to avoid pickle issues on Windows
+            # In physical mode, use multiprocess for true parallel execution
+            if self.sim:
+                # Direct execution in simulation mode
+                self.logger.debug('Executing SQ job directly in simulation mode')
+                self.run_job(sq_closure, execute_context.inputs, sq_execute.kwargs)
+                self.logger.debug(f'SQ job execution completed, queue size: {self.sq_output_queue.qsize() if hasattr(self.sq_output_queue, "qsize") else "unknown"}')
+            else:
+                # Spawn process in physical mode
+                p = mp.Process(
+                    target=self.run_job,
+                    args=[sq_closure, execute_context.inputs, sq_execute.kwargs])
+                p.start()
 
         else:
             raise ValueError('Interpreter not supported')

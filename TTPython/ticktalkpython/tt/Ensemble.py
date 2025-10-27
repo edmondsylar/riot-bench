@@ -337,7 +337,9 @@ class TTEnsemble():
                 self.logger.info('Exiting ensemble steady state(simulated)')
 
             except BaseException as e:
-                self.logger.error(e)
+                import traceback
+                self.logger.error(f"Exception in steady state: {e}")
+                self.logger.error(traceback.format_exc())
                 raise
 
             finally:
